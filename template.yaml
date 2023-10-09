@@ -137,69 +137,69 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable2
 
-  NatEip:
-    Type: AWS::EC2::EIP
+  # NatEip:
+  #   Type: AWS::EC2::EIP
 
-  NatEip2:
-    Type: AWS::EC2::EIP
+  # NatEip2:
+  #   Type: AWS::EC2::EIP
 
-  # NATゲートウェイを作成する
-  # NATゲートウェイは公開サブネットに配置され、プライベートサブネットのリソースがインターネットにアクセスする入り口を作る
-  # プライベートサブネット → NATゲートウェイ(公開サブネット) → インターネットゲートウェイ → インターネット で 外部にアクセスできるようになる
-  NatGateway:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatEip.AllocationId
-      # NatEIPとNATGatewayはマルチAZ構成にすることで、冗長化できる
-      SubnetId: !Ref PublicSubnet
+  # # NATゲートウェイを作成する
+  # # NATゲートウェイは公開サブネットに配置され、プライベートサブネットのリソースがインターネットにアクセスする入り口を作る
+  # # プライベートサブネット → NATゲートウェイ(公開サブネット) → インターネットゲートウェイ → インターネット で 外部にアクセスできるようになる
+  # NatGateway:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties:
+  #     AllocationId: !GetAtt NatEip.AllocationId
+  #     # NatEIPとNATGatewayはマルチAZ構成にすることで、冗長化できる
+  #     SubnetId: !Ref PublicSubnet
 
-  NatGateway2:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatEip2.AllocationId
-      SubnetId: !Ref PublicSubnet2
+  # NatGateway2:
+  #   Type: AWS::EC2::NatGateway
+  #   Properties:
+  #     AllocationId: !GetAtt NatEip2.AllocationId
+  #     SubnetId: !Ref PublicSubnet2
 
-  # プライベートサブネット用のルートテーブルを作成する
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
+  # # プライベートサブネット用のルートテーブルを作成する
+  # PrivateRouteTable:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties:
+  #     VpcId: !Ref VPC
 
-  PrivateRouteTable2:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
+  # PrivateRouteTable2:
+  #   Type: AWS::EC2::RouteTable
+  #   Properties:
+  #     VpcId: !Ref VPC
 
-  # プライベートサブネット用のルートを作成
-  # プライベートサブネット内からのインターネット全体へのアウトバウンド接続を、NATゲートウェイに転送させるルートを作る
-  # プライベートサブネットのFargateタスクがDockerHubからイメージをpullする際は、これを通る
-  # NATゲートウェイはリソースに代わってインターネットにアクセスしてくれる
-  PrivateRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable
-      NatGatewayId: !Ref NatGateway
-      DestinationCidrBlock: "0.0.0.0/0"
+  # # プライベートサブネット用のルートを作成
+  # # プライベートサブネット内からのインターネット全体へのアウトバウンド接続を、NATゲートウェイに転送させるルートを作る
+  # # プライベートサブネットのFargateタスクがDockerHubからイメージをpullする際は、これを通る
+  # # NATゲートウェイはリソースに代わってインターネットにアクセスしてくれる
+  # PrivateRoute:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+  #     RouteTableId: !Ref PrivateRouteTable
+  #     NatGatewayId: !Ref NatGateway
+  #     DestinationCidrBlock: "0.0.0.0/0"
 
-  PrivateRoute2:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable2
-      NatGatewayId: !Ref NatGateway2
-      DestinationCidrBlock: "0.0.0.0/0"
+  # PrivateRoute2:
+  #   Type: AWS::EC2::Route
+  #   Properties:
+  #     RouteTableId: !Ref PrivateRouteTable2
+  #     NatGatewayId: !Ref NatGateway2
+  #     DestinationCidrBlock: "0.0.0.0/0"
 
-  # プライベートサブネットとプライベートサブネット用のルートテーブルで明示的な関連付けを行う
-  PrivateSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnet
-      RouteTableId: !Ref PrivateRouteTable
+  # # プライベートサブネットとプライベートサブネット用のルートテーブルで明示的な関連付けを行う
+  # PrivateSubnetRouteTableAssociation:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+  #     SubnetId: !Ref PrivateSubnet
+  #     RouteTableId: !Ref PrivateRouteTable
 
-  PrivateSubnet2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnet2
-      RouteTableId: !Ref PrivateRouteTable2
+  # PrivateSubnet2RouteTableAssociation:
+  #   Type: AWS::EC2::SubnetRouteTableAssociation
+  #   Properties:
+  #     SubnetId: !Ref PrivateSubnet2
+  #     RouteTableId: !Ref PrivateRouteTable2
 
   EC2KeyPair:
     Type: 'AWS::EC2::KeyPair'
