@@ -1,0 +1,327 @@
+Resources:
+  # VPCネットワークを構築
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  # 公開サブネット
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: ap-northeast-1a
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: ap-northeast-1c
+
+  # プライベートサブネット
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      # 異なるCIDRブロックにVPCを配置する
+      CidrBlock: 10.0.2.0/24
+      # このサブネットで起動されるEC2インスタンスが、自動で公開IPを取得しないようにする
+      MapPublicIpOnLaunch: false
+      # 異なるアベイラビリティゾーンに配置する
+      AvailabilityZone: ap-northeast-1a
+
+  # # VPCにもう一つプライベートサブネットを作成する
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: ap-northeast-1c
+
+  SecurityGroupForELB:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable Access from Internet
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  SecurityGroupForEC2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable Public access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref SecurityGroupForELB
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # VPC内部にセキュリティグループを作成する
+  SecurityGroupForRDS:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable MySQL access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref SecurityGroupForEC2
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  # インターネットゲートウェイをVPCに関連付ける
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # 公開サブネット用のルートテーブルを作成する
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  # 公開サブネット用のルートテーブルで、
+  # IGW → インターネット全体へのルートを作る
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      GatewayId: !Ref InternetGateway
+      DestinationCidrBlock: "0.0.0.0/0"
+
+  PublicRoute2:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable2
+      GatewayId: !Ref InternetGateway
+      DestinationCidrBlock: "0.0.0.0/0"
+
+  # 公開サブネットとルートテーブルの明示的な関連付けを行う
+  # ルートテーブルには、"明示的なサブネットの関連付けと、明示的でないサブネットの関連付けがある
+  # 明示的な関連づけを行わないと、サブネットはデフォルトでメインルートテーブルと関連づけられる
+  PublicSubnetRouteTableAssociations:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociations:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable2
+
+  NatEip:
+    Type: AWS::EC2::EIP
+
+  NatEip2:
+    Type: AWS::EC2::EIP
+
+  # NATゲートウェイを作成する
+  # NATゲートウェイは公開サブネットに配置され、プライベートサブネットのリソースがインターネットにアクセスする入り口を作る
+  # プライベートサブネット → NATゲートウェイ(公開サブネット) → インターネットゲートウェイ → インターネット で 外部にアクセスできるようになる
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      # NatEIPとNATGatewayはマルチAZ構成にすることで、冗長化できる
+      SubnetId: !Ref PublicSubnet
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEip2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+
+  # プライベートサブネット用のルートテーブルを作成する
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  # プライベートサブネット用のルートを作成
+  # プライベートサブネット内からのインターネット全体へのアウトバウンド接続を、NATゲートウェイに転送させるルートを作る
+  # プライベートサブネットのFargateタスクがDockerHubからイメージをpullする際は、これを通る
+  # NATゲートウェイはリソースに代わってインターネットにアクセスしてくれる
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      NatGatewayId: !Ref NatGateway
+      DestinationCidrBlock: "0.0.0.0/0"
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      NatGatewayId: !Ref NatGateway2
+      DestinationCidrBlock: "0.0.0.0/0"
+
+  # プライベートサブネットとプライベートサブネット用のルートテーブルで明示的な関連付けを行う
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  EC2KeyPair:
+    Type: 'AWS::EC2::KeyPair'
+    Properties:
+      KeyName: "KeyPair"
+      # KeyType: rsa
+
+  # EC2起動テンプレート
+  EC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: EC2AutoScalingLaunchTemplate
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        KeyName: !Ref EC2KeyPair
+        ImageId: ami-079cd5448deeace01
+        SecurityGroupIds:
+          - !Ref SecurityGroupForEC2
+
+  EC2AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MaxSize: "4"
+      MinSize: "1"
+      DesiredCapacity: "2"
+      LaunchTemplate:
+        LaunchTemplateId: !Ref EC2LaunchTemplate
+        Version: !GetAtt EC2LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet
+        - !Ref PublicSubnet2
+      TargetGroupARNs:
+        - !Ref TargetGroup
+
+  # RDSのサブネットグループを作成する
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnet
+        - !Ref PrivateSubnet2
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: '20'
+      # インスタンスタイプの指定
+      DBInstanceClass: db.t3.micro
+      # パブリックアクセスを無効にする
+      PubliclyAccessible: false
+      # データベースはMySQLを使用
+      Engine: mysql
+      # 管理者のユーザー名とパスワードを設定
+      # AWS Secrets Manager や AWS Systems Manager Parameter Store などで管理することが推奨される
+      MasterUsername: admin
+      MasterUserPassword: password
+      # セキュリティグループとRDSサブネットグループを関連付ける
+      VPCSecurityGroups:
+        - !Ref SecurityGroupForRDS
+      # RDSインスタンスはサブネットグループ内のサブネットにデプロイされる
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      # マルチAZ構成が成立する条件
+      # - 異なるAZに位置するパブリックサブネットがある
+      # - RDSのサブネットグループに2つ以上のサブネットが含まれている
+      MultiAZ: true
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: coda-load-balancer
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PublicSubnet
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref SecurityGroupForELB
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LoadBalancer
+    Properties:
+      Name: coda-target-group
+      VpcId: !Ref VPC
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: "8080"
+      HealthCheckPath: '/'
+      HealthCheckIntervalSeconds: 10
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetType: instance
+      LoadBalancerArns:
+        - !Ref LoadBalancer
+
+  LoadBalancerListerner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - LoadBalancer
+      - TargetGroup
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  # キーペアは新規作成した場合、AWS Systems Manager > パラメータストア > /ec2/keypair/{key-pair-id} に保管される
+  KeyPair:
+    Description: EC2 instance key pair is stored in Systems Manager Parameter Store. Check out for /ec2/keypair/{key_pair_id}
+    Value: KeyPair
+
+  RDSInstanceEndpoint:
+    Description: Endpoint of the RDS instance
+    Value: !GetAtt [RDSInstance, Endpoint.Address]
+
+  MySQLEndpoint:
+    Description: Try out connecting to the MySQL instance
+    Value: !Sub
+        - "mysql -h ${EndpointAddress} -P 3306 -u admin -p"
+        - EndpointAddress: !GetAtt [RDSInstance, Endpoint.Address]
